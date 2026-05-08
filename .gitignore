@@ -1,0 +1,18 @@
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# C# / .NET
+[Oo]bj/
+[Bb]in/
+.vs/
+*.user
+*.suo
+appsettings.Development.json
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db

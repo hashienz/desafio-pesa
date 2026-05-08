@@ -1,0 +1,11 @@
+@API_HostAddress = http://localhost:5115
+
+POST {{API_HostAddress}}/api/supplier/evaluate
+Content-Type: application/json
+Accept: application/json
+
+{
+  "cnpj": "12.345.678/0001-90"
+}
+
+###
