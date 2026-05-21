@@ -16,19 +16,26 @@ export default function Feedback() {
     fetch(`http://localhost:5115/api/supplier/feedback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cnpj, ...scores })
+      body: JSON.stringify({ cnpj, deadline: scores.deadline, price: scores.price, quality: scores.quality })
     })
       .then(res => {
-        if (!res.ok) throw new Error('Erro ao enviar feedback. Verifique se o fornecedor existe.');
-        return res.json();
+        return res.json().then(data => ({ ok: res.ok, data }));
       })
-      .then(data => {
-        setMessage({ type: 'info', text: 'Feedback registrado! Score Histórico atualizado.' });
+      .then(({ ok, data }) => {
         setLoading(false);
+        if (!ok) {
+          setMessage({ type: 'error', text: data.message || 'Erro desconhecido ao salvar feedback.' });
+          return;
+        }
+        setMessage({ 
+          type: 'info', 
+          text: `${data.message} Novo Score: ${data.novoScore}/100 | Novo Status: ${data.novoStatus}`
+        });
         setCnpj('');
+        setScores({ deadline: 10, price: 10, quality: 10 });
       })
       .catch(err => {
-        setMessage({ type: 'error', text: err.message });
+        setMessage({ type: 'error', text: 'Falha de conexão com o servidor. Verifique se a API e o banco estão rodando.' });
         setLoading(false);
       });
   };

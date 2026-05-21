@@ -212,19 +212,39 @@ app.MapGet("/api/supplier/metrics", async (AppDbContext db) => {
         var homologados = await db.Suppliers.CountAsync(s => s.Status.Contains("Homologado"));
         var rejeitados = await db.Suppliers.CountAsync(s => s.Status == "Reprovado");
         var aguardando = await db.Suppliers.CountAsync(s => s.Status == "Aguardando Auditoria In Loco");
-        
-        // Count alto risco by joining with evaluation
+        var aguardandoAprovacao = await db.Suppliers.CountAsync(s => s.Status == "Aguardando Aprovação");
         var altoRisco = await db.ScoreEvaluations.CountAsync(e => e.TotalScore <= 40);
+        var total = await db.Suppliers.CountAsync();
 
         return Results.Ok(new {
             homologados,
             rejeitados,
             aguardandoAuditoria = aguardando,
-            altoRisco
+            aguardandoAprovacao,
+            altoRisco,
+            total,
+            dbOnline = true
         });
-    } catch {
-        // Fallback para testes sem banco
-        return Results.Ok(new { homologados = 12, rejeitados = 3, aguardandoAuditoria = 5, altoRisco = 2 });
+    } catch (Exception ex) {
+        return Results.Ok(new { 
+            homologados = 0, rejeitados = 0, aguardandoAuditoria = 0, aguardandoAprovacao = 0,
+            altoRisco = 0, total = 0, dbOnline = false,
+            erro = "Banco de dados indisponível. Reinicie o XAMPP/MySQL."
+        });
+    }
+});
+
+// IMPORTANT: Esta rota DEVE vir antes de /api/supplier/{cnpj} para evitar conflito de rota
+app.MapGet("/api/supplier/pending-approvals", async (AppDbContext db) => {
+    try {
+        var pending = await db.Suppliers
+            .Include(s => s.ScoreEvaluation)
+            .Where(s => s.Status == "Aguardando Aprovação")
+            .Select(s => new { s.Id, s.Cnpj, s.CorporateName, s.Status, Score = s.ScoreEvaluation != null ? s.ScoreEvaluation.TotalScore : (int?)null })
+            .ToListAsync();
+        return Results.Ok(pending);
+    } catch (Exception ex) {
+        return Results.Problem("Erro ao buscar fila de aprovação: banco de dados indisponível.", statusCode: 503);
     }
 });
 
@@ -234,66 +254,58 @@ app.MapGet("/api/supplier/{cnpj}", async (AppDbContext db, string cnpj) => {
             .Include(s => s.ScoreEvaluation)
             .FirstOrDefaultAsync(s => s.Cnpj == cnpj);
             
-        if (supplier == null) return Results.NotFound();
+        if (supplier == null) return Results.NotFound(new { Message = $"Fornecedor com CNPJ '{cnpj}' não encontrado na base de dados." });
         
         return Results.Ok(new { Supplier = supplier, Evaluation = supplier.ScoreEvaluation });
     } catch {
-        return Results.NotFound(new { Message = "Erro de conexão ou fornecedor não encontrado." });
-    }
-});
-
-app.MapGet("/api/supplier/pending-approvals", async (AppDbContext db) => {
-    try {
-        var pending = await db.Suppliers
-            .Where(s => s.Status == "Aguardando Aprovação")
-            .Select(s => new { s.Id, s.Cnpj, s.CorporateName, s.Status })
-            .ToListAsync();
-        return Results.Ok(pending);
-    } catch {
-        // Fallback
-        return Results.Ok(new[] {
-            new { Id = Guid.NewGuid(), Cnpj = "99.999.999/0001-99", CorporateName = "Fornecedor Pendente Exemplo", Status = "Aguardando Aprovação" }
-        });
+        return Results.Problem("Erro de conexão com o banco de dados.", statusCode: 503);
     }
 });
 
 app.MapPost("/api/supplier/{id}/approve", async (AppDbContext db, Guid id, ApproveRequest req) => {
     try {
         var supplier = await db.Suppliers.FindAsync(id);
-        if (supplier == null) return Results.NotFound();
+        if (supplier == null) return Results.NotFound(new { Message = "Fornecedor não encontrado." });
 
-        if (req.Action == "approve") {
-            supplier.Status = "Homologado";
-        } else {
-            supplier.Status = "Reprovado";
-        }
-
+        var novoStatus = req.Action == "approve" ? "Homologado" : "Reprovado";
+        supplier.Status = novoStatus;
         await db.SaveChangesAsync();
-        return Results.Ok(new { Message = "Status atualizado.", Status = supplier.Status });
-    } catch {
-        return Results.Ok(new { Message = "Simulado." });
+        return Results.Ok(new { Message = $"Fornecedor {novoStatus} com sucesso.", Status = novoStatus, Persistido = true });
+    } catch (Exception ex) {
+        return Results.Problem($"Erro ao salvar no banco de dados: {ex.Message}", statusCode: 503);
     }
 });
 
 app.MapPost("/api/supplier/feedback", async (AppDbContext db, ISupplierScoringService scoring, FeedbackRequest req) => {
     try {
+        if (string.IsNullOrWhiteSpace(req.Cnpj))
+            return Results.BadRequest(new { Message = "CNPJ é obrigatório." });
+
         var supplier = await db.Suppliers
             .Include(s => s.ScoreEvaluation)
             .FirstOrDefaultAsync(s => s.Cnpj == req.Cnpj);
             
-        if (supplier == null || supplier.ScoreEvaluation == null) return Results.NotFound();
+        if (supplier == null) 
+            return Results.NotFound(new { Message = $"Fornecedor com CNPJ '{req.Cnpj}' não encontrado. Realize o onboarding primeiro." });
+        
+        if (supplier.ScoreEvaluation == null)
+            return Results.NotFound(new { Message = "Avaliação de score não encontrada para este fornecedor." });
 
         supplier.ScoreEvaluation.PostDeliveryDeadlineScore = req.Deadline;
         supplier.ScoreEvaluation.PostDeliveryPriceScore = req.Price;
         supplier.ScoreEvaluation.PostDeliveryQualityScore = req.Quality;
 
-        // Recalculate
         scoring.CalculateScore(supplier.ScoreEvaluation, supplier);
-
         await db.SaveChangesAsync();
-        return Results.Ok(new { Message = "Feedback salvo." });
-    } catch {
-         return Results.Ok(new { Message = "Simulado." });
+
+        return Results.Ok(new { 
+            Message = "✅ Feedback registrado e Score Histórico recalculado com sucesso!", 
+            NovoScore = supplier.ScoreEvaluation.TotalScore,
+            NovoStatus = supplier.Status,
+            Persistido = true
+        });
+    } catch (Exception ex) {
+        return Results.Problem($"Erro ao salvar feedback no banco: {ex.Message}", statusCode: 503);
     }
 });
 
