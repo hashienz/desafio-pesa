@@ -99,7 +99,8 @@ app.MapPost("/api/supplier/evaluate", async (
             .Include(s => s.ScoreEvaluation)
             .FirstOrDefaultAsync(s => s.Cnpj == cnpj);
 
-        if (existingSupplier != null)
+        // Se o fornecedor já existe E não foi enviado um documento novo no onboarding, retornamos o cache
+        if (existingSupplier != null && (documentFile == null || documentFile.Length == 0))
         {
             return Results.Ok(new { 
                 Message = "Fornecedor já avaliado.",
@@ -123,24 +124,36 @@ app.MapPost("/api/supplier/evaluate", async (
             );
         }
 
-        // Simulação de IA: Gerando dados randômicos mas consistentes para o mesmo CNPJ
         var rand = new Random(cnpj.GetHashCode());
         var nomes = new[] { "TechCorp Brasil Ltda", "Logística Avançada S.A.", "Serviços Gerais XYZ", "Construtora Horizonte", "Inovação TI", "Agro Indústria PESA" };
-        
-        var supplier = new Supplier 
-        { 
-            Cnpj = cnpj, 
-            CorporateName = nomes[rand.Next(nomes.Length)] + " - " + cnpj.Substring(0, Math.Min(cnpj.Length, 4)), 
-            SupplierType = "Terceiro Recorrente" 
-        };
-        
-        var evaluation = new ScoreEvaluation 
+
+        Supplier supplier;
+        ScoreEvaluation evaluation;
+        bool isNew = false;
+
+        if (existingSupplier != null)
         {
-            HasEsgCertification = rand.NextDouble() > 0.5, // 50% de chance
-            HasIncompleteFiscalDocs = rand.NextDouble() > 0.8, // 20% de chance de problema
-            HasJudicialOrLaborProcess = rand.NextDouble() > 0.7, // 30% de chance de processos
-            HasPositiveInternalHistory = rand.NextDouble() > 0.4 // 60% de chance de histórico bom
-        };
+            supplier = existingSupplier;
+            evaluation = existingSupplier.ScoreEvaluation ?? new ScoreEvaluation { SupplierId = existingSupplier.Id };
+        }
+        else
+        {
+            isNew = true;
+            supplier = new Supplier 
+            { 
+                Cnpj = cnpj, 
+                CorporateName = nomes[rand.Next(nomes.Length)] + " - " + cnpj.Substring(0, Math.Min(cnpj.Length, 4)), 
+                SupplierType = "Terceiro Recorrente" 
+            };
+            
+            evaluation = new ScoreEvaluation 
+            {
+                HasEsgCertification = rand.NextDouble() > 0.5, // 50% de chance
+                HasIncompleteFiscalDocs = rand.NextDouble() > 0.8, // 20% de chance de problema
+                HasJudicialOrLaborProcess = rand.NextDouble() > 0.7, // 30% de chance de processos
+                HasPositiveInternalHistory = rand.NextDouble() > 0.4 // 60% de chance de histórico bom
+            };
+        }
 
         // Calibrar score com base na IA do documento
         if (aiDocResult != null)
@@ -161,13 +174,24 @@ app.MapPost("/api/supplier/evaluate", async (
         }
         
         // Relacionar os objetos
-        supplier.ScoreEvaluation = evaluation;
+        if (isNew)
+        {
+            supplier.ScoreEvaluation = evaluation;
+            dbContext.Suppliers.Add(supplier);
+        }
+        else
+        {
+            if (supplier.ScoreEvaluation == null)
+            {
+                supplier.ScoreEvaluation = evaluation;
+            }
+            dbContext.Suppliers.Update(supplier);
+        }
         
         // Calcular o score e definir o status
         scoringService.CalculateScore(evaluation, supplier);
         
         // Salvar no banco de dados
-        dbContext.Suppliers.Add(supplier);
         await dbContext.SaveChangesAsync();
         
         var aiSummary = $"A IA cruzou dados de 14 bases públicas e privadas. " +
