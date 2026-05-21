@@ -36,6 +36,11 @@ namespace API.Services
             var apiKey = _config["GeminiApiKey"];
             if (string.IsNullOrWhiteSpace(apiKey))
             {
+                apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? Environment.GetEnvironmentVariable("GeminiApiKey");
+            }
+
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
                 // Fallback para Mock se a chave de API não estiver configurada
                 return GetMockAnalysis(fileName);
             }

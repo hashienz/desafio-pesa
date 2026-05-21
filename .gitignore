@@ -12,6 +12,7 @@ dist-ssr/
 *.suo
 appsettings.json
 appsettings.Development.json
+.env
 
 # Editor / OS
 .vscode/
