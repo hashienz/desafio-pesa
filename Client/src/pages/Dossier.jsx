@@ -1,170 +1,169 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useLocation } from 'react-router-dom';
+import { FileText, BarChart2, User, AlertCircle, Cpu, CheckCircle, XCircle } from 'lucide-react';
+
+/* ── helpers ── */
+const statusBadge = (status) => {
+  if (!status) return null;
+  if (status.includes('Homolog'))   return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">{status}</span>;
+  if (status.includes('Reprovado')) return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">{status}</span>;
+  if (status.includes('Aprovação')) return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">{status}</span>;
+  return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">{status}</span>;
+};
+
+const docBadge = (val) => {
+  if (!val) return null;
+  if (val === 'Válido')   return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700"><CheckCircle size={11}/>{val}</span>;
+  if (val === 'Inválido') return <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700"><XCircle size={11}/>{val}</span>;
+  return <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600">{val}</span>;
+};
+
+const scoreGradient = (s) => {
+  if (s >= 70) return { text: 'text-emerald-600', bar: 'bg-emerald-500', ring: 'ring-emerald-100' };
+  if (s >= 40) return { text: 'text-amber-500',   bar: 'bg-amber-400',   ring: 'ring-amber-100'   };
+  return         { text: 'text-red-500',   bar: 'bg-red-500',     ring: 'ring-red-100'     };
+};
+
+const Row = ({ label, children }) => (
+  <div className="flex py-3 border-b border-slate-50 last:border-0">
+    <dt className="w-40 text-xs font-medium text-slate-500 flex-shrink-0">{label}</dt>
+    <dd className="text-sm text-slate-800">{children}</dd>
+  </div>
+);
 
 export default function Dossier() {
-  const { cnpj } = useParams();
-  const location = useLocation();
-  const [result, setResult] = useState(location.state || null);
+  const { cnpj }   = useParams();
+  const location   = useLocation();
+  const [result, setResult]   = useState(location.state || null);
   const [loading, setLoading] = useState(!result && !!cnpj);
-  const [error, setError] = useState(null);
+  const [error,   setError]   = useState(null);
 
   useEffect(() => {
-    // Se não veio do Onboarding (acesso direto via URL), busca na API
     if (!result && cnpj) {
       setLoading(true);
       fetch(`http://localhost:5115/api/supplier/${encodeURIComponent(cnpj)}`)
-        .then(res => {
-          if (!res.ok) throw new Error('Fornecedor não encontrado.');
-          return res.json();
-        })
-        .then(data => {
-          setResult(data);
-          setLoading(false);
-        })
-        .catch(err => {
-          setError(err.message);
-          setLoading(false);
-        });
+        .then(r => { if (!r.ok) throw new Error('Fornecedor não encontrado.'); return r.json(); })
+        .then(d => { setResult(d); setLoading(false); })
+        .catch(e => { setError(e.message); setLoading(false); });
     }
   }, [cnpj, result]);
 
-  if (!cnpj && !result) {
+  if (!cnpj && !result)
     return (
-      <div className="page-content" style={{ padding: '15px' }}>
-        <div className="desktop-alert info">
-          ℹ️ Nenhum fornecedor selecionado. Por favor, utilize a aba "Busca / Onboarding" para consultar um CNPJ.
-        </div>
+      <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl text-sm text-blue-700 max-w-xl">
+        <AlertCircle size={16} className="flex-shrink-0 mt-0.5" />
+        <span>Nenhum fornecedor selecionado. Use <strong>Busca / Onboarding</strong> para consultar um CNPJ.</span>
       </div>
     );
-  }
 
-  if (loading) return <p style={{ padding: '15px' }}>Carregando dossiê...</p>;
-  if (error) return <div className="desktop-alert error" style={{ margin: '15px' }}>{error}</div>;
+  if (loading) return <div className="text-sm text-slate-400 animate-pulse">Carregando dossiê...</div>;
+  if (error)   return <div className="flex items-center gap-2 text-sm text-red-600 p-4 bg-red-50 border border-red-100 rounded-xl"><AlertCircle size={15}/>{error}</div>;
   if (!result) return null;
 
+  const score  = result.evaluation?.totalScore ?? 0;
+  const styles = scoreGradient(score);
+  const ev     = result.evaluation ?? {};
+  const sup    = result.supplier   ?? {};
+  const doc    = result.documentAnalysis;
+
   return (
-    <div className="page-content" style={{ paddingBottom: '20px' }}>
-      <fieldset className="desktop-fieldset result-fieldset">
-        <legend>Dossiê do Fornecedor & Score Engine</legend>
-        
-        {result.message && (
-          <div className="desktop-alert info" style={{ marginBottom: '10px' }}>
-            ℹ️ {result.message}
-          </div>
-        )}
-
-        {result.aiSummary && (
-          <div className="desktop-alert" style={{ marginBottom: '15px', backgroundColor: '#e8f4f8', border: '1px solid #99cce0' }}>
-            <strong>🤖 Relatório da IA PESA:</strong><br/>
-            {result.aiSummary}
-          </div>
-        )}
-
-        {result.documentAnalysis && (
-          <fieldset className="desktop-fieldset" style={{ marginBottom: '15px', borderColor: '#0a6991' }}>
-            <legend style={{ color: '#0a6991', fontWeight: 'bold' }}>📄 Documento Analisado com OCR IA</legend>
-            <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-              <div style={{ fontSize: '32px' }}>🗎</div>
-              <div style={{ flex: 1 }}>
-                <table className="desktop-table">
-                  <tbody>
-                    <tr>
-                      <td className="lbl" style={{ width: '120px' }}>Tipo Detectado:</td>
-                      <td><strong>{result.documentAnalysis.tipoDocumento}</strong></td>
-                    </tr>
-                    <tr>
-                      <td className="lbl">Validação IA:</td>
-                      <td>
-                        <span style={{
-                          backgroundColor: result.documentAnalysis.validacaoDocumento === 'Válido' ? '#d4edda' : '#f8d7da',
-                          color: result.documentAnalysis.validacaoDocumento === 'Válido' ? '#155724' : '#721c24',
-                          padding: '1px 5px',
-                          border: '1px solid',
-                          fontSize: '11px',
-                          fontWeight: 'bold'
-                        }}>
-                          {result.documentAnalysis.validacaoDocumento}
-                        </span>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="lbl">Ajuste de Risco:</td>
-                      <td style={{ 
-                        color: result.documentAnalysis.impactoScore > 0 ? 'green' : result.documentAnalysis.impactoScore < 0 ? 'red' : 'black',
-                        fontWeight: 'bold'
-                      }}>
-                        {result.documentAnalysis.impactoScore > 0 ? `+${result.documentAnalysis.impactoScore}` : result.documentAnalysis.impactoScore} pontos
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="lbl">Extração de Dados:</td>
-                      <td style={{ fontSize: '11px', lineHeight: '1.4' }}>{result.documentAnalysis.resumo}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </fieldset>
-        )}
-
-        <div className="data-grid">
-          <div className="data-panel">
-            <h4>📝 Dados Cadastrais</h4>
-            <table className="desktop-table">
-              <tbody>
-                <tr>
-                  <td className="lbl">CNPJ:</td>
-                  <td>{result.supplier.cnpj}</td>
-                </tr>
-                <tr>
-                  <td className="lbl">Razão Social:</td>
-                  <td>{result.supplier.corporateName}</td>
-                </tr>
-                <tr>
-                  <td className="lbl">Tipo:</td>
-                  <td>{result.supplier.supplierType}</td>
-                </tr>
-                <tr>
-                  <td className="lbl">Status Atual:</td>
-                  <td>
-                    <strong className={result.supplier.status === 'Homologado' || result.supplier.status === 'Homologado Automático' ? 'text-success' : 'text-warning'}>
-                      {result.supplier.status}
-                    </strong>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div className="data-panel">
-            <h4>📊 Detalhamento do Risco (Score Engine)</h4>
-            <table className="desktop-table">
-              <tbody>
-                <tr>
-                  <td className="lbl">Pontuação Final:</td>
-                  <td><strong>{result.evaluation.totalScore} pts</strong></td>
-                </tr>
-                <tr>
-                  <td className="lbl">Selo ESG (+15 pts se Sim):</td>
-                  <td>{result.evaluation.hasEsgCertification ? 'Sim' : 'Não'}</td>
-                </tr>
-                <tr>
-                  <td className="lbl">Docs Fiscais Incompletos (-20 pts):</td>
-                  <td>{result.evaluation.hasIncompleteFiscalDocs ? 'Sim' : 'Não'}</td>
-                </tr>
-                <tr>
-                  <td className="lbl">Processos Judiciais (-25 pts):</td>
-                  <td>{result.evaluation.hasJudicialOrLaborProcess ? 'Sim' : 'Não'}</td>
-                </tr>
-                <tr>
-                  <td className="lbl">Histórico Interno (+20 pts):</td>
-                  <td>{result.evaluation.hasPositiveInternalHistory ? 'Positivo' : 'Sem Histórico'}</td>
-                </tr>
-              </tbody>
-            </table>
+    <div className="space-y-4">
+      {/* AI Report */}
+      {result.aiSummary && (
+        <div className="flex items-start gap-3 p-4 bg-sky-50 border border-sky-200 rounded-xl">
+          <Cpu size={15} className="text-sky-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-semibold text-sky-700 mb-1">Relatório do Motor de Análise</p>
+            <p className="text-xs text-slate-600 leading-relaxed">{result.aiSummary}</p>
           </div>
         </div>
-      </fieldset>
+      )}
+
+      {/* Top row grid */}
+      <div className="grid grid-cols-3 gap-4">
+
+        {/* ── Card 1: Documento OCR (ocupa 2 colunas) ── */}
+        <div className="col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <FileText size={15} className="text-blue-600" />
+              <span className="text-sm font-semibold text-slate-700">Documento Analisado por OCR</span>
+            </div>
+            {doc ? docBadge(doc.validacaoDocumento) : <span className="text-xs text-slate-400">Nenhum documento enviado</span>}
+          </div>
+          <div className="px-5 py-1">
+            {doc ? (
+              <dl>
+                <Row label="Tipo Detectado"><span className="font-semibold">{doc.tipoDocumento}</span></Row>
+                <Row label="Ajuste de Score">
+                  <span className={`font-bold ${doc.impactoScore > 0 ? 'text-emerald-600' : doc.impactoScore < 0 ? 'text-red-600' : 'text-slate-500'}`}>
+                    {doc.impactoScore > 0 ? `+${doc.impactoScore}` : doc.impactoScore} pontos
+                  </span>
+                </Row>
+                <Row label="Parecer Extraído">
+                  <span className="text-slate-600 leading-relaxed">{doc.resumo}</span>
+                </Row>
+              </dl>
+            ) : (
+              <p className="text-sm text-slate-400 py-6 text-center">
+                Nenhum documento foi enviado durante o onboarding. O score foi calculado apenas com base nos dados públicos do CNPJ.
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* ── Card 3: Score de Risco ── */}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100">
+            <BarChart2 size={15} className="text-blue-600" />
+            <span className="text-sm font-semibold text-slate-700">Score de Risco</span>
+          </div>
+          <div className="px-5 pt-4 pb-2 text-center">
+            <div className={`inline-flex items-baseline gap-1 ring-4 ${styles.ring} rounded-2xl px-4 py-2 mb-3`}>
+              <span className={`text-5xl font-black ${styles.text}`}>{score}</span>
+              <span className="text-xl text-slate-400 font-medium">/ 100</span>
+            </div>
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden mb-4">
+              <div className={`h-full ${styles.bar} rounded-full transition-all duration-700`} style={{ width: `${score}%` }} />
+            </div>
+          </div>
+          <div className="px-5 pb-4">
+            <dl className="space-y-2">
+              {[
+                { label: 'Cert. ESG',     value: ev.hasEsgCertification       ? 'Sim (+15 pts)'     : 'Não',             ok: ev.hasEsgCertification       },
+                { label: 'Docs Fiscais',  value: ev.hasIncompleteFiscalDocs   ? 'Pendentes (−20 pts)': 'Regulares',       ok: !ev.hasIncompleteFiscalDocs  },
+                { label: 'Processos',     value: ev.hasJudicialOrLaborProcess ? 'Detectados (−25 pts)': 'Nenhum',         ok: !ev.hasJudicialOrLaborProcess },
+                { label: 'Histórico',     value: ev.hasPositiveInternalHistory ? 'Positivo (+20 pts)' : 'Sem histórico',  ok: ev.hasPositiveInternalHistory },
+              ].map(item => (
+                <div key={item.label} className="flex items-center justify-between">
+                  <dt className="text-xs text-slate-500">{item.label}</dt>
+                  <dd className={`text-xs font-semibold ${item.ok ? 'text-emerald-600' : 'text-slate-400'}`}>{item.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Card 2: Dados Cadastrais (linha separada, largura total) ── */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="flex items-center gap-2 px-5 py-3.5 border-b border-slate-100">
+          <User size={15} className="text-blue-600" />
+          <span className="text-sm font-semibold text-slate-700">Dados Cadastrais</span>
+        </div>
+        <div className="px-5 py-1">
+          <dl className="grid grid-cols-2">
+            <div className="border-r border-slate-50 pr-6">
+              <Row label="CNPJ"><span className="font-mono text-xs">{sup.cnpj}</span></Row>
+              <Row label="Razão Social"><span className="font-medium">{sup.corporateName}</span></Row>
+            </div>
+            <div className="pl-6">
+              <Row label="Tipo de Fornecedor">{sup.supplierType}</Row>
+              <Row label="Status Atual">{statusBadge(sup.status)}</Row>
+            </div>
+          </dl>
+        </div>
+      </div>
     </div>
   );
 }

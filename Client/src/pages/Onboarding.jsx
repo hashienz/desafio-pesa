@@ -1,203 +1,120 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Search, Upload, FileCheck, X, Loader2, AlertCircle } from 'lucide-react';
 
 export default function Onboarding() {
-  const [cnpj, setCnpj] = useState('');
-  const [file, setFile] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [cnpj, setCnpj]         = useState('');
+  const [file, setFile]         = useState(null);
+  const [loading, setLoading]   = useState(false);
   const [progress, setProgress] = useState(0);
-  const [error, setError] = useState(null);
+  const [error, setError]       = useState(null);
   const navigate = useNavigate();
 
-  const handleFileChange = (e) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-    }
-  };
+  const handleFileChange = e => { if (e.target.files?.[0]) setFile(e.target.files[0]); };
 
-  const handleSearch = (e) => {
+  const handleSearch = e => {
     e.preventDefault();
     if (!cnpj) return;
-
-    setLoading(true);
-    setError(null);
-    setProgress(10);
-
-    // Simular progresso do Wizard do Windows
+    setLoading(true); setError(null); setProgress(10);
     const timer = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 90) {
-          clearInterval(timer);
-          return 90;
-        }
-        return prev + 15;
-      });
+      setProgress(p => { if (p >= 90) { clearInterval(timer); return 90; } return p + 10; });
     }, 200);
 
-    const formData = new FormData();
-    formData.append('cnpj', cnpj);
-    if (file) {
-      formData.append('document', file);
-    }
+    const fd = new FormData();
+    fd.append('cnpj', cnpj);
+    if (file) fd.append('document', file);
 
-    fetch('http://localhost:5115/api/supplier/evaluate', {
-      method: 'POST',
-      body: formData
-    })
-      .then(response => {
-        clearInterval(timer);
-        setProgress(100);
-        if (!response.ok) throw new Error('Falha ao conectar com o servidor');
-        return response.json();
-      })
-      .then(data => {
-        setTimeout(() => {
-          setLoading(false);
-          // Transita para o Dossiê enviando os dados completos (incluindo IA e documento)
-          navigate(`/dossier/${encodeURIComponent(data.supplier.cnpj)}`, { state: data });
-        }, 500);
-      })
-      .catch(err => {
-        clearInterval(timer);
-        setError(err.message);
-        setLoading(false);
-      });
+    fetch('http://localhost:5115/api/supplier/evaluate', { method: 'POST', body: fd })
+      .then(r => { clearInterval(timer); setProgress(100); if (!r.ok) throw new Error('Falha ao conectar com o servidor.'); return r.json(); })
+      .then(data => { setTimeout(() => { setLoading(false); navigate(`/dossier/${encodeURIComponent(data.supplier.cnpj)}`, { state: data }); }, 400); })
+      .catch(err => { clearInterval(timer); setError(err.message); setLoading(false); });
   };
 
   return (
-    <div className="page-content">
-      <fieldset className="desktop-fieldset">
-        <legend>Busca e Onboarding</legend>
-        <p style={{ fontSize: '12px', marginBottom: '15px' }}>
-          Digite o CNPJ do fornecedor. Opcionalmente, faça o upload de certidões fiscais ou certificados ESG para que a IA avalie e calcule o score automaticamente.
-        </p>
-        <form onSubmit={handleSearch} className="desktop-form">
-          <div className="form-row">
-            <label htmlFor="cnpj">CNPJ:</label>
-            <input 
-              type="text" 
-              id="cnpj" 
-              value={cnpj} 
-              onChange={(e) => setCnpj(e.target.value)}
-              placeholder="Ex: 12.345.678/0001-90"
-              className="desktop-input"
-            />
-          </div>
+    <div className="max-w-2xl space-y-6">
+      <div>
+        <h2 className="text-lg font-semibold text-slate-800">Busca & Onboarding de Fornecedores</h2>
+        <p className="text-sm text-slate-500 mt-0.5">Informe o CNPJ e o motor de IA irá cruzar dados de bases públicas para gerar o score de compliance.</p>
+      </div>
 
-          {/* Windows Wizard-style Document Upload Zone */}
-          <div className="wizard-upload-box" style={{
-            marginTop: '15px',
-            border: '1px double #808080',
-            backgroundColor: '#f0f0f0',
-            padding: '10px',
-            boxShadow: 'inset 1px 1px 2px #fff, inset -1px -1px 2px #808080'
-          }}>
-            <div style={{
-              backgroundColor: '#0a6991',
-              color: 'white',
-              fontSize: '11px',
-              padding: '2px 5px',
-              fontWeight: 'bold',
-              marginBottom: '10px',
-              display: 'flex',
-              justifyContent: 'space-between'
-            }}>
-              <span>💾 Assistente de Importação de Documentos de Compliance v1.0</span>
-              <span>[Wizard]</span>
-            </div>
-            
-            <div style={{
-              backgroundColor: 'white',
-              border: '1px solid #7f9db9',
-              padding: '15px',
-              textAlign: 'center',
-              cursor: 'pointer',
-              position: 'relative'
-            }}>
-              <input 
-                type="file" 
-                id="doc-upload" 
-                onChange={handleFileChange}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  width: '100%',
-                  height: '100%',
-                  opacity: 0,
-                  cursor: 'pointer'
-                }}
-                accept=".pdf,.png,.jpg,.jpeg"
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100">
+          <p className="text-sm font-semibold text-slate-700 flex items-center gap-2"><Search size={14} /> Identificação do Fornecedor</p>
+        </div>
+        <div className="p-6">
+          <form onSubmit={handleSearch} className="space-y-5">
+            {/* CNPJ */}
+            <div>
+              <label htmlFor="cnpj" className="block text-sm font-medium text-slate-700 mb-1.5">CNPJ do Fornecedor</label>
+              <input
+                id="cnpj" type="text" value={cnpj}
+                onChange={e => setCnpj(e.target.value)}
+                placeholder="00.000.000/0001-00"
+                disabled={loading}
+                className="w-full max-w-xs px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-400"
               />
-              <span style={{ fontSize: '28px', display: 'block' }}>📁</span>
-              <span style={{ fontSize: '11px', fontWeight: 'bold', color: '#333' }}>
-                {file ? `Selecionado: ${file.name}` : "Clique ou arraste um PDF/Imagem aqui..."}
-              </span>
-              <span style={{ fontSize: '10px', display: 'block', color: '#666', marginTop: '5px' }}>
-                (Ex: certidao_negativa.pdf, certificado_esg.pdf, processo_trabalhista.pdf)
-              </span>
             </div>
 
-            {file && (
-              <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '11px', color: '#0a6991', fontWeight: 'bold' }}>✓ Arquivo carregado no assistente</span>
-                <button 
-                  type="button" 
-                  onClick={() => setFile(null)} 
-                  style={{
-                    fontSize: '10px',
-                    padding: '2px 5px',
-                    cursor: 'pointer',
-                    background: '#f0f0f0',
-                    border: '1px solid #808080',
-                    boxShadow: '1px 1px 0 #fff'
-                  }}
-                >
-                  Remover
-                </button>
+            {/* Upload */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                Documento de Compliance <span className="text-slate-400 font-normal">(opcional — PDF, PNG, JPG)</span>
+              </label>
+              <div className={`relative border-2 border-dashed rounded-xl p-6 text-center transition-colors ${file ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-blue-300 hover:bg-slate-50'}`}>
+                <input type="file" onChange={handleFileChange} accept=".pdf,.png,.jpg,.jpeg" disabled={loading}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center mx-auto mb-3 ${file ? 'bg-blue-100' : 'bg-slate-100'}`}>
+                  {file ? <FileCheck size={20} className="text-blue-600" /> : <Upload size={20} className="text-slate-400" />}
+                </div>
+                {file ? (
+                  <>
+                    <p className="text-sm font-semibold text-blue-700">{file.name}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Clique para trocar</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-slate-600">Arraste ou clique para selecionar</p>
+                    <p className="text-xs text-slate-400 mt-0.5">Certidão Negativa, Certificado ESG, Relatório Judicial...</p>
+                  </>
+                )}
               </div>
-            )}
-          </div>
+              {file && (
+                <button type="button" onClick={() => setFile(null)} className="mt-2 flex items-center gap-1 text-xs text-slate-500 hover:text-red-500 transition-colors">
+                  <X size={12} /> Remover arquivo
+                </button>
+              )}
+            </div>
 
-          <div style={{ marginTop: '15px', textAlign: 'right' }}>
-            <button type="submit" className="desktop-button" disabled={loading || !cnpj} style={{ padding: '5px 15px' }}>
-              {loading ? 'Instalando & Processando...' : 'Avançar >'}
+            {/* Submit */}
+            <button
+              type="submit" disabled={loading || !cnpj}
+              className="flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? <Loader2 size={15} className="animate-spin" /> : <Search size={15} />}
+              {loading ? 'Analisando...' : 'Iniciar Análise de Compliance'}
             </button>
-          </div>
-        </form>
-      </fieldset>
+          </form>
 
-      {loading && (
-        <div className="desktop-alert info" style={{ marginTop: '15px' }}>
-          <strong>[IA PESA] Status da Análise:</strong>
-          <div style={{
-            height: '15px',
-            backgroundColor: '#e0e0e0',
-            border: '1px solid #808080',
-            marginTop: '5px',
-            position: 'relative',
-            overflow: 'hidden'
-          }}>
-            <div style={{
-              height: '100%',
-              backgroundColor: '#0a6991',
-              width: `${progress}%`,
-              transition: 'width 0.2s ease-in-out',
-              backgroundImage: 'linear-gradient(45deg, rgba(255,255,255,.15) 25%, transparent 25%, transparent 50%, rgba(255,255,255,.15) 50%, rgba(255,255,255,.15) 75%, transparent 75%, transparent)',
-              backgroundSize: '15px 15px'
-            }}></div>
-          </div>
-          <span style={{ fontSize: '10px', marginTop: '5px', display: 'block' }}>
-            Lendo conteúdo dos documentos anexados com OCR da IA, processando pontuação ESG, fiscais e cruzando dados de 14 bases públicas...
-          </span>
-        </div>
-      )}
+          {/* Progress */}
+          {loading && (
+            <div className="mt-5 p-4 bg-blue-50 rounded-xl border border-blue-100">
+              <p className="text-xs font-semibold text-blue-700 mb-2">Motor de Análise em Execução</p>
+              <div className="h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                <div className="h-full bg-blue-600 rounded-full transition-all duration-200" style={{ width: `${progress}%` }} />
+              </div>
+              <p className="text-xs text-slate-500 mt-2">Cruzando CNPJ com bases da Receita Federal, TST, TCU e registros ESG...</p>
+            </div>
+          )}
 
-      {error && (
-        <div className="desktop-alert error" style={{ marginTop: '15px' }}>
-          <strong>Erro:</strong> {error}
+          {/* Error */}
+          {error && (
+            <div className="mt-4 flex items-start gap-2.5 p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700">
+              <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
