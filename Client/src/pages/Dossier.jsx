@@ -60,6 +60,53 @@ export default function Dossier() {
           </div>
         )}
 
+        {result.documentAnalysis && (
+          <fieldset className="desktop-fieldset" style={{ marginBottom: '15px', borderColor: '#0a6991' }}>
+            <legend style={{ color: '#0a6991', fontWeight: 'bold' }}>📄 Documento Analisado com OCR IA</legend>
+            <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+              <div style={{ fontSize: '32px' }}>🗎</div>
+              <div style={{ flex: 1 }}>
+                <table className="desktop-table">
+                  <tbody>
+                    <tr>
+                      <td className="lbl" style={{ width: '120px' }}>Tipo Detectado:</td>
+                      <td><strong>{result.documentAnalysis.tipoDocumento}</strong></td>
+                    </tr>
+                    <tr>
+                      <td className="lbl">Validação IA:</td>
+                      <td>
+                        <span style={{
+                          backgroundColor: result.documentAnalysis.validacaoDocumento === 'Válido' ? '#d4edda' : '#f8d7da',
+                          color: result.documentAnalysis.validacaoDocumento === 'Válido' ? '#155724' : '#721c24',
+                          padding: '1px 5px',
+                          border: '1px solid',
+                          fontSize: '11px',
+                          fontWeight: 'bold'
+                        }}>
+                          {result.documentAnalysis.validacaoDocumento}
+                        </span>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="lbl">Ajuste de Risco:</td>
+                      <td style={{ 
+                        color: result.documentAnalysis.impactoScore > 0 ? 'green' : result.documentAnalysis.impactoScore < 0 ? 'red' : 'black',
+                        fontWeight: 'bold'
+                      }}>
+                        {result.documentAnalysis.impactoScore > 0 ? `+${result.documentAnalysis.impactoScore}` : result.documentAnalysis.impactoScore} pontos
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="lbl">Extração de Dados:</td>
+                      <td style={{ fontSize: '11px', lineHeight: '1.4' }}>{result.documentAnalysis.resumo}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </fieldset>
+        )}
+
         <div className="data-grid">
           <div className="data-panel">
             <h4>📝 Dados Cadastrais</h4>

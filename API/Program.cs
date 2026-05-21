@@ -9,6 +9,7 @@ var builder = WebApplication.CreateBuilder(args);
 // Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
 builder.Services.AddOpenApi();
 builder.Services.AddScoped<ISupplierScoringService, SupplierScoringService>();
+builder.Services.AddHttpClient<IGeminiDocumentAnalyzer, GeminiDocumentAnalyzer>();
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<AppDbContext>(options => 
@@ -54,14 +55,28 @@ app.MapGet("/weatherforecast", () =>
 })
 .WithName("GetWeatherForecast");
 
-app.MapPost("/api/supplier/evaluate", async (ISupplierScoringService scoringService, AppDbContext dbContext, EvaluateRequest req) => 
+app.MapPost("/api/supplier/evaluate", async (
+    ISupplierScoringService scoringService, 
+    AppDbContext dbContext, 
+    IGeminiDocumentAnalyzer documentAnalyzer,
+    HttpContext httpContext) => 
 {
+    string cnpj = "";
     try 
     {
+        var form = await httpContext.Request.ReadFormAsync();
+        cnpj = form["cnpj"].ToString();
+        var documentFile = form.Files.GetFile("document");
+
+        if (string.IsNullOrWhiteSpace(cnpj))
+        {
+            return Results.BadRequest(new { Message = "O CNPJ é obrigatório." });
+        }
+
         // Verificando se o fornecedor já existe
         var existingSupplier = await dbContext.Suppliers
             .Include(s => s.ScoreEvaluation)
-            .FirstOrDefaultAsync(s => s.Cnpj == req.Cnpj);
+            .FirstOrDefaultAsync(s => s.Cnpj == cnpj);
 
         if (existingSupplier != null)
         {
@@ -73,14 +88,28 @@ app.MapPost("/api/supplier/evaluate", async (ISupplierScoringService scoringServ
             });
         }
 
+        // Processar documento pela IA se houver
+        GeminiAnalysisResult? aiDocResult = null;
+        if (documentFile != null && documentFile.Length > 0)
+        {
+            using var ms = new System.IO.MemoryStream();
+            await documentFile.CopyToAsync(ms);
+            var fileBytes = ms.ToArray();
+            aiDocResult = await documentAnalyzer.AnalyzeDocumentAsync(
+                documentFile.FileName, 
+                documentFile.ContentType, 
+                fileBytes
+            );
+        }
+
         // Simulação de IA: Gerando dados randômicos mas consistentes para o mesmo CNPJ
-        var rand = new Random(req.Cnpj.GetHashCode());
+        var rand = new Random(cnpj.GetHashCode());
         var nomes = new[] { "TechCorp Brasil Ltda", "Logística Avançada S.A.", "Serviços Gerais XYZ", "Construtora Horizonte", "Inovação TI", "Agro Indústria PESA" };
         
         var supplier = new Supplier 
         { 
-            Cnpj = req.Cnpj, 
-            CorporateName = nomes[rand.Next(nomes.Length)] + " - " + req.Cnpj.Substring(0, Math.Min(req.Cnpj.Length, 4)), 
+            Cnpj = cnpj, 
+            CorporateName = nomes[rand.Next(nomes.Length)] + " - " + cnpj.Substring(0, Math.Min(cnpj.Length, 4)), 
             SupplierType = "Terceiro Recorrente" 
         };
         
@@ -91,6 +120,24 @@ app.MapPost("/api/supplier/evaluate", async (ISupplierScoringService scoringServ
             HasJudicialOrLaborProcess = rand.NextDouble() > 0.7, // 30% de chance de processos
             HasPositiveInternalHistory = rand.NextDouble() > 0.4 // 60% de chance de histórico bom
         };
+
+        // Calibrar score com base na IA do documento
+        if (aiDocResult != null)
+        {
+            if (aiDocResult.TipoDocumento.Contains("ESG") || aiDocResult.TipoDocumento.Contains("Sustent"))
+            {
+                evaluation.HasEsgCertification = true;
+            }
+            else if (aiDocResult.TipoDocumento.Contains("Certidão Negativa") || aiDocResult.TipoDocumento.Contains("CND"))
+            {
+                evaluation.HasIncompleteFiscalDocs = false;
+                evaluation.HasPositiveInternalHistory = true;
+            }
+            else if (aiDocResult.TipoDocumento.Contains("Processo") || aiDocResult.TipoDocumento.Contains("Judicial") || aiDocResult.TipoDocumento.Contains("Trabalhista"))
+            {
+                evaluation.HasJudicialOrLaborProcess = true;
+            }
+        }
         
         // Relacionar os objetos
         supplier.ScoreEvaluation = evaluation;
@@ -108,17 +155,31 @@ app.MapPost("/api/supplier/evaluate", async (ISupplierScoringService scoringServ
                 (evaluation.HasJudicialOrLaborProcess ? "⚠️ Processos trabalhistas ativos no TST. " : "✅ Nada consta em tribunais. ") +
                 $"Score final calculado: {evaluation.TotalScore}/100.";
 
-        // Fake AI thinking delay
-        await Task.Delay(2000);
+        if (aiDocResult != null)
+        {
+            aiSummary += $" [Leitura de Documento] IA identificou: {aiDocResult.TipoDocumento} ({aiDocResult.ValidacaoDocumento}). Parecer: {aiDocResult.Resumo}";
+        }
 
-        return Results.Ok(new { Supplier = supplier, Evaluation = evaluation, AiSummary = aiSummary });
+        // Fake AI thinking delay se não tiver carregado documento (para dar feedback legal de interface)
+        if (aiDocResult == null)
+        {
+            await Task.Delay(2000);
+        }
+
+        return Results.Ok(new { 
+            Supplier = supplier, 
+            Evaluation = evaluation, 
+            AiSummary = aiSummary,
+            DocumentAnalysis = aiDocResult
+        });
     } 
     catch 
     {
         // Fallback for tests when MySQL is down
+        var fallbackCnpj = string.IsNullOrWhiteSpace(cnpj) ? "CNPJ Simulado" : cnpj;
         var mockSupplier = new Supplier 
         { 
-            Cnpj = req.Cnpj, 
+            Cnpj = fallbackCnpj, 
             CorporateName = "Fornecedor (Modo Offline)", 
             SupplierType = "Terceiro Recorrente" 
         };
