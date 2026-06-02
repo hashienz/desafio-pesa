@@ -354,6 +354,23 @@ app.MapPost("/api/supplier/feedback", async (AppDbContext db, ISupplierScoringSe
     }
 });
 
+// Aplicar migrações e criar banco de dados automaticamente na inicialização
+try
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Console.WriteLine("🔄 Verificando e aplicando migrações do banco de dados...");
+        await dbContext.Database.MigrateAsync();
+        Console.WriteLine("✅ Banco de dados pronto para uso!");
+    }
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"⚠️ Erro ao aplicar migrações: {ex.Message}");
+    Console.WriteLine("Certifique-se de que o MySQL está rodando e acessível.");
+}
+
 app.Run();
 
 record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
