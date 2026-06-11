@@ -34,6 +34,8 @@ builder.Configuration.AddEnvironmentVariables();
 builder.Services.AddOpenApi();
 builder.Services.AddScoped<ISupplierScoringService, SupplierScoringService>();
 builder.Services.AddHttpClient<IGeminiDocumentAnalyzer, GeminiDocumentAnalyzer>();
+builder.Services.AddHttpClient<ICnpjPublicDataService, CnpjPublicDataService>();
+
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<AppDbContext>(options => 
@@ -83,6 +85,7 @@ app.MapPost("/api/supplier/evaluate", async (
     ISupplierScoringService scoringService, 
     AppDbContext dbContext, 
     IGeminiDocumentAnalyzer documentAnalyzer,
+    ICnpjPublicDataService cnpjPublicDataService,
     HttpContext httpContext) => 
 {
     string cnpj = "";
@@ -101,6 +104,23 @@ app.MapPost("/api/supplier/evaluate", async (
         var existingSupplier = await dbContext.Suppliers
             .Include(s => s.ScoreEvaluation)
             .FirstOrDefaultAsync(s => s.Cnpj == cnpj);
+
+        // Enriquecimento por CNPJ em bases públicas (quando possível)
+        // Sempre tolerante a falhas: se não conseguir, retornará nulls.
+        CnpjEnrichmentResult? cnpjEnrichment = null;
+        try
+        {
+            if (cnpjPublicDataService != null)
+                cnpjEnrichment = await cnpjPublicDataService.EnrichAsync(cnpj);
+        }
+        catch
+        {
+            cnpjEnrichment = null;
+        }
+
+
+
+
 
         // Se o fornecedor já existe E não foi enviado um documento novo no onboarding, retornamos o cache
         if (existingSupplier != null && (documentFile == null || documentFile.Length == 0))
@@ -134,6 +154,14 @@ app.MapPost("/api/supplier/evaluate", async (
         ScoreEvaluation evaluation;
         bool isNew = false;
 
+        // Se a consulta pública trouxe dados, usamos como seed das flags.
+        // Se vier null, mantém o comportamento anterior (rand) para não quebrar o fluxo.
+        bool? hasEsgCertification = cnpjEnrichment?.HasEsgCertification;
+        bool? hasIncompleteFiscalDocs = cnpjEnrichment?.HasIncompleteFiscalDocs;
+        bool? hasJudicialOrLaborProcess = cnpjEnrichment?.HasJudicialOrLaborProcess;
+        bool? hasPositiveInternalHistory = cnpjEnrichment?.HasPositiveInternalHistory;
+
+
         if (existingSupplier != null)
         {
             supplier = existingSupplier;
@@ -144,19 +172,22 @@ app.MapPost("/api/supplier/evaluate", async (
             isNew = true;
             supplier = new Supplier 
             { 
-                Cnpj = cnpj, 
-                CorporateName = nomes[rand.Next(nomes.Length)] + " - " + cnpj.Substring(0, Math.Min(cnpj.Length, 4)), 
+                Cnpj = cnpj,
+                CorporateName = !string.IsNullOrWhiteSpace(cnpjEnrichment?.CorporateName)
+                    ? cnpjEnrichment!.CorporateName
+                    : nomes[rand.Next(nomes.Length)] + " - " + cnpj.Substring(0, Math.Min(cnpj.Length, 4)),
                 SupplierType = "Terceiro Recorrente" 
             };
             
             evaluation = new ScoreEvaluation 
             {
-                HasEsgCertification = rand.NextDouble() > 0.5, // 50% de chance
-                HasIncompleteFiscalDocs = rand.NextDouble() > 0.8, // 20% de chance de problema
-                HasJudicialOrLaborProcess = rand.NextDouble() > 0.7, // 30% de chance de processos
-                HasPositiveInternalHistory = rand.NextDouble() > 0.4 // 60% de chance de histórico bom
+                HasEsgCertification = hasEsgCertification ?? (rand.NextDouble() > 0.5), // 50% de chance
+                HasIncompleteFiscalDocs = hasIncompleteFiscalDocs ?? (rand.NextDouble() > 0.8), // 20% de chance de problema
+                HasJudicialOrLaborProcess = hasJudicialOrLaborProcess ?? (rand.NextDouble() > 0.7), // 30% de chance de processos
+                HasPositiveInternalHistory = hasPositiveInternalHistory ?? (rand.NextDouble() > 0.4) // 60% de chance de histórico bom
             };
         }
+
 
         // Calibrar score com base na IA do documento
         if (aiDocResult != null)
@@ -193,15 +224,34 @@ app.MapPost("/api/supplier/evaluate", async (
         
         // Calcular o score e definir o status
         scoringService.CalculateScore(evaluation, supplier);
-        
+
         // Salvar no banco de dados
         await dbContext.SaveChangesAsync();
         
-        var aiSummary = $"A IA cruzou dados de 14 bases públicas e privadas. " +
-                (evaluation.HasEsgCertification ? "✅ Práticas ESG validadas. " : "⚠️ Nenhuma certificação ESG detectada. ") +
-                (evaluation.HasIncompleteFiscalDocs ? "❌ Alerta: Irregularidades fiscais encontradas na Receita. " : "✅ Situação fiscal regularizada. ") +
-                (evaluation.HasJudicialOrLaborProcess ? "⚠️ Processos trabalhistas ativos no TST. " : "✅ Nada consta em tribunais. ") +
+        var sourceSummaryParts = new System.Collections.Generic.List<string>();
+        if (cnpjEnrichment != null && !string.IsNullOrWhiteSpace(cnpjEnrichment.SourceSummary))
+            sourceSummaryParts.Add(cnpjEnrichment.SourceSummary);
+        
+        var sourceSummary = sourceSummaryParts.Count > 0
+            ? string.Join(" | ", sourceSummaryParts)
+            : "Dados de CNPJ não disponíveis (fallback).";
+
+        var triedSources = cnpjEnrichment?.TriedSources != null && cnpjEnrichment.TriedSources.Length > 0
+            ? string.Join(", ", cnpjEnrichment.TriedSources)
+            : "(nenhuma fonte listada)";
+
+        var successfulSources = cnpjEnrichment?.SuccessfulSources != null && cnpjEnrichment.SuccessfulSources.Length > 0
+            ? string.Join(", ", cnpjEnrichment.SuccessfulSources)
+            : "(nenhuma fonte respondeu)";
+
+        var aiSummary = $"Enriquecimento por CNPJ: {sourceSummary}. " +
+                $"Fontes tentadas: {triedSources}. Fontes com sucesso: {successfulSources}. " +
+                (evaluation.HasEsgCertification ? "✅ Práticas ESG validadas (indicador). " : "⚠️ Nenhuma certificação ESG detectada (indicador). ") +
+                (evaluation.HasIncompleteFiscalDocs ? "❌ Alerta: Irregularidades fiscais detectadas (indicador). " : "✅ Situação fiscal regularizada (indicador). ") +
+                (evaluation.HasJudicialOrLaborProcess ? "⚠️ Processos trabalhistas ativos (indicador). " : "✅ Nada consta em tribunais (indicador). ") +
                 $"Score final calculado: {evaluation.TotalScore}/100.";
+
+
 
         if (aiDocResult != null)
         {
