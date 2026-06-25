@@ -9,20 +9,43 @@ const scoreColor = (s) => {
 };
 
 export default function ApprovalQueue() {
-  const [queue, setQueue]         = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const [queue, setQueue]         = useState(() => {
+    try {
+      const cached = localStorage.getItem('pesa_approval_queue');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loading, setLoading]     = useState(queue.length === 0);
   const [dbError, setDbError]     = useState(null);
   const [actionMsg, setActionMsg] = useState(null);
 
-  useEffect(() => { fetchQueue(); }, []);
-
-  const fetchQueue = () => {
-    setLoading(true); setDbError(null);
+  const fetchQueue = (showLoading = true) => {
+    if (showLoading) setLoading(true);
+    setDbError(null);
     fetch('http://localhost:5115/api/supplier/pending-approvals')
       .then(r => { if (!r.ok) throw new Error(`Servidor retornou ${r.status}.`); return r.json(); })
-      .then(d => { setQueue(d); setLoading(false); })
-      .catch(e => { setDbError(e.message); setLoading(false); });
+      .then(d => {
+        setQueue(d);
+        setLoading(false);
+        try {
+          localStorage.setItem('pesa_approval_queue', JSON.stringify(d));
+        } catch (e) {
+          console.error(e);
+        }
+      })
+      .catch(e => {
+        if (queue.length === 0) {
+          setDbError(e.message);
+        }
+        setLoading(false);
+      });
   };
+
+  useEffect(() => {
+    fetchQueue(queue.length === 0);
+  }, []);
 
   const handleAction = (id, action) => {
     setActionMsg(null);
@@ -30,7 +53,13 @@ export default function ApprovalQueue() {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action })
     })
       .then(r => { if (!r.ok) throw new Error(`Erro ${r.status}`); return r.json(); })
-      .then(d => { setActionMsg({ ok: true, text: d.message }); fetchQueue(); })
+      .then(d => {
+        setActionMsg({ ok: true, text: d.message });
+        try {
+          localStorage.removeItem('pesa_approval_queue');
+        } catch {}
+        fetchQueue(true);
+      })
       .catch(e => setActionMsg({ ok: false, text: e.message }));
   };
 

@@ -34,20 +34,89 @@ const Row = ({ label, children }) => (
 export default function Dossier() {
   const { cnpj }   = useParams();
   const location   = useLocation();
-  const [result, setResult]   = useState(location.state || null);
-  const [loading, setLoading] = useState(!result && !!cnpj);
-  const [error,   setError]   = useState(null);
+
+  const [result, setResult] = useState(() => {
+    if (location.state) return location.state;
+    const activeCnpj = cnpj || localStorage.getItem('pesa_last_cnpj');
+    if (activeCnpj) {
+      try {
+        const clean = activeCnpj.replace(/\D/g, '');
+        const cached = localStorage.getItem(`pesa_dossier_${clean}`);
+        return cached ? JSON.parse(cached) : null;
+      } catch {}
+    }
+    return null;
+  });
+
+  const activeCnpj = cnpj || localStorage.getItem('pesa_last_cnpj');
+  const cleanActiveCnpj = activeCnpj ? activeCnpj.replace(/\D/g, '') : '';
+  const resultCnpj = result?.supplier?.cnpj ? result.supplier.cnpj.replace(/\D/g, '') : '';
+
+  const [loading, setLoading] = useState(() => {
+    if (!activeCnpj) return false;
+    if (result && resultCnpj === cleanActiveCnpj) return false;
+    return true;
+  });
+
+  const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!result && cnpj) {
-      setLoading(true);
-      const cleanCnpj = cnpj.replace(/\D/g, '');
+    const currentCnpj = cnpj || localStorage.getItem('pesa_last_cnpj');
+    if (!currentCnpj) {
+      setLoading(false);
+      return;
+    }
+
+    const cleanCnpj = currentCnpj.replace(/\D/g, '');
+    const cachedData = localStorage.getItem(`pesa_dossier_${cleanCnpj}`);
+    let cachedJson = null;
+    try {
+      cachedJson = cachedData ? JSON.parse(cachedData) : null;
+    } catch {}
+
+    const currentResultCnpj = result?.supplier?.cnpj ? result.supplier.cnpj.replace(/\D/g, '') : '';
+
+    if (currentResultCnpj !== cleanCnpj || !result) {
+      if (cachedJson) {
+        setResult(cachedJson);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+
       fetch(`http://localhost:5115/api/supplier/${cleanCnpj}`)
         .then(r => { if (!r.ok) throw new Error('Fornecedor não encontrado.'); return r.json(); })
-        .then(d => { setResult(d); setLoading(false); })
-        .catch(e => { setError(e.message); setLoading(false); });
+        .then(d => {
+          setResult(d);
+          setLoading(false);
+          try {
+            localStorage.setItem(`pesa_dossier_${cleanCnpj}`, JSON.stringify(d));
+            localStorage.setItem('pesa_last_cnpj', cleanCnpj);
+          } catch {}
+        })
+        .catch(e => {
+          if (!cachedJson) {
+            setError(e.message);
+          }
+          setLoading(false);
+        });
+    } else {
+      // Background silent update
+      fetch(`http://localhost:5115/api/supplier/${cleanCnpj}`)
+        .then(r => { if (r.ok) return r.json(); })
+        .then(d => {
+          if (d) {
+             setResult(d);
+             try {
+               localStorage.setItem(`pesa_dossier_${cleanCnpj}`, JSON.stringify(d));
+               localStorage.setItem('pesa_last_cnpj', cleanCnpj);
+             } catch {}
+          }
+        })
+        .catch(() => {});
     }
-  }, [cnpj, result]);
+  }, [cnpj]);
 
   if (!cnpj && !result)
     return (

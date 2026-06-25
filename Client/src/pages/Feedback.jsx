@@ -23,10 +23,30 @@ const Slider = ({ id, label, value, onChange, disabled }) => {
 };
 
 export default function Feedback() {
-  const [cnpj, setCnpj]       = useState('');
-  const [scores, setScores]   = useState({ deadline: 8, price: 8, quality: 8 });
+  const [cnpj, setCnpj]       = useState(() => sessionStorage.getItem('pesa_feedback_cnpj') || '');
+  const [scores, setScores]   = useState(() => {
+    try {
+      const cached = sessionStorage.getItem('pesa_feedback_scores');
+      return cached ? JSON.parse(cached) : { deadline: 8, price: 8, quality: 8 };
+    } catch {
+      return { deadline: 8, price: 8, quality: 8 };
+    }
+  });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
+
+  const handleCnpjChange = val => {
+    setCnpj(val);
+    sessionStorage.setItem('pesa_feedback_cnpj', val);
+  };
+
+  const handleScoreChange = (key, val) => {
+    setScores(prev => {
+      const next = { ...prev, [key]: val };
+      sessionStorage.setItem('pesa_feedback_scores', JSON.stringify(next));
+      return next;
+    });
+  };
 
   const handleSubmit = e => {
     e.preventDefault();
@@ -43,7 +63,17 @@ export default function Feedback() {
         setLoading(false);
         if (!ok) { setMessage({ ok: false, text: d.message || 'Erro desconhecido.' }); return; }
         setMessage({ ok: true, title: 'Avaliação registrada!', text: `Novo Score: ${d.novoScore}/100 — Novo Status: ${d.novoStatus}` });
-        setCnpj(''); setScores({ deadline: 8, price: 8, quality: 8 });
+        
+        setCnpj('');
+        setScores({ deadline: 8, price: 8, quality: 8 });
+        sessionStorage.removeItem('pesa_feedback_cnpj');
+        sessionStorage.removeItem('pesa_feedback_scores');
+
+        try {
+          localStorage.removeItem('pesa_dashboard_metrics');
+          const cleanCnpj = cnpj.replace(/\D/g, '');
+          localStorage.removeItem(`pesa_dossier_${cleanCnpj}`);
+        } catch {}
       })
       .catch(() => { setMessage({ ok: false, text: 'Falha de conexão com o servidor.' }); setLoading(false); });
   };
@@ -76,7 +106,7 @@ export default function Feedback() {
             <label htmlFor="cnpjFb" className="block text-sm font-medium text-slate-700 mb-1.5">CNPJ do Fornecedor</label>
             <input
               id="cnpjFb" type="text" value={cnpj}
-              onChange={e => setCnpj(e.target.value)}
+              onChange={e => handleCnpjChange(e.target.value)}
               placeholder="00.000.000/0001-00" required disabled={loading}
               className="w-full max-w-xs px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50"
             />
@@ -85,9 +115,9 @@ export default function Feedback() {
           {/* Sliders */}
           <div className="bg-slate-50 rounded-xl p-5 space-y-5">
             <p className="text-sm font-semibold text-slate-700">Critérios de Avaliação</p>
-            <Slider id="deadline" label="Cumprimento de Prazo"      value={scores.deadline} onChange={v => setScores(s => ({ ...s, deadline: v }))} disabled={loading} />
-            <Slider id="price"    label="Relação Custo-Benefício"   value={scores.price}    onChange={v => setScores(s => ({ ...s, price: v }))}    disabled={loading} />
-            <Slider id="quality"  label="Qualidade Técnica Entregue" value={scores.quality}  onChange={v => setScores(s => ({ ...s, quality: v }))}  disabled={loading} />
+            <Slider id="deadline" label="Cumprimento de Prazo"      value={scores.deadline} onChange={v => handleScoreChange('deadline', v)} disabled={loading} />
+            <Slider id="price"    label="Relação Custo-Benefício"   value={scores.price}    onChange={v => handleScoreChange('price', v)}    disabled={loading} />
+            <Slider id="quality"  label="Qualidade Técnica Entregue" value={scores.quality}  onChange={v => handleScoreChange('quality', v)}  disabled={loading} />
           </div>
 
           <button type="submit" disabled={loading || !cnpj}

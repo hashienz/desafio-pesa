@@ -10,18 +10,40 @@ const CARDS = [
 ];
 
 export default function Dashboard() {
-  const [metrics, setMetrics] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [metrics, setMetrics] = useState(() => {
+    try {
+      const cached = localStorage.getItem('pesa_dashboard_metrics');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(!metrics);
 
-  const fetchMetrics = () => {
-    setLoading(true);
+  const fetchMetrics = (showLoading = true) => {
+    if (showLoading) setLoading(true);
     fetch('http://localhost:5115/api/supplier/metrics')
       .then(r => r.json())
-      .then(d => { setMetrics(d); setLoading(false); })
-      .catch(() => { setMetrics({ dbOnline: false, erro: 'Não foi possível conectar ao servidor.' }); setLoading(false); });
+      .then(d => {
+        setMetrics(d);
+        setLoading(false);
+        try {
+          localStorage.setItem('pesa_dashboard_metrics', JSON.stringify(d));
+        } catch (e) {
+          console.error(e);
+        }
+      })
+      .catch(() => {
+        if (!metrics) {
+          setMetrics({ dbOnline: false, erro: 'Não foi possível conectar ao servidor.' });
+        }
+        setLoading(false);
+      });
   };
 
-  useEffect(() => { fetchMetrics(); }, []);
+  useEffect(() => {
+    fetchMetrics(!metrics);
+  }, []);
 
   return (
     <div className="space-y-6">
