@@ -30,8 +30,7 @@ builder.Configuration.AddJsonFile("appsettings.Example.json", optional: true, re
 builder.Configuration.AddEnvironmentVariables();
 
 // Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
+// builder.Services.AddOpenApi();
 builder.Services.AddScoped<ISupplierScoringService, SupplierScoringService>();
 builder.Services.AddHttpClient<IGeminiDocumentAnalyzer, GeminiDocumentAnalyzer>();
 builder.Services.AddHttpClient<ICnpjPublicDataService, CnpjPublicDataService>();
@@ -56,7 +55,7 @@ var app = builder.Build();
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();
+    // app.MapOpenApi();
 }
 
 app.UseHttpsRedirection();
