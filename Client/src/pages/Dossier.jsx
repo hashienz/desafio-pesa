@@ -41,7 +41,8 @@ export default function Dossier() {
   useEffect(() => {
     if (!result && cnpj) {
       setLoading(true);
-      fetch(`http://localhost:5115/api/supplier/${encodeURIComponent(cnpj)}`)
+      const cleanCnpj = cnpj.replace(/\D/g, '');
+      fetch(`http://localhost:5115/api/supplier/${cleanCnpj}`)
         .then(r => { if (!r.ok) throw new Error('Fornecedor não encontrado.'); return r.json(); })
         .then(d => { setResult(d); setLoading(false); })
         .catch(e => { setError(e.message); setLoading(false); });

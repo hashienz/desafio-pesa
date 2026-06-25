@@ -358,15 +358,39 @@ app.MapGet("/api/supplier/pending-approvals", async (AppDbContext db) => {
     }
 });
 
-app.MapGet("/api/supplier/{cnpj}", async (AppDbContext db, string cnpj) => {
+app.MapGet("/api/supplier/all", async (AppDbContext db) => {
     try {
+        var suppliers = await db.Suppliers
+            .Include(s => s.ScoreEvaluation)
+            .OrderByDescending(s => s.CreatedAt)
+            .Select(s => new {
+                s.Id, s.Cnpj, s.CorporateName, s.Status, s.CreatedAt,
+                Score = s.ScoreEvaluation != null ? s.ScoreEvaluation.TotalScore : (int?)null
+            })
+            .ToListAsync();
+        return Results.Ok(suppliers);
+    } catch {
+        return Results.Problem("Erro de conexão com o banco de dados.", statusCode: 503);
+    }
+});
+
+app.MapGet("/api/supplier/{cnpj}", async (AppDbContext db, string cnpj) =>
+{
+    try {
+        // Normalizar o CNPJ recebido (pode vir formatado ou não)
+        var cleanCnpj = new string(cnpj.Where(char.IsDigit).ToArray());
+        
         var supplier = await db.Suppliers
             .Include(s => s.ScoreEvaluation)
-            .FirstOrDefaultAsync(s => s.Cnpj == cnpj);
+            .FirstOrDefaultAsync(s => s.Cnpj == cleanCnpj || s.Cnpj == cnpj);
             
         if (supplier == null) return Results.NotFound(new { Message = $"Fornecedor com CNPJ '{cnpj}' não encontrado na base de dados." });
         
-        return Results.Ok(new { Supplier = supplier, Evaluation = supplier.ScoreEvaluation });
+        return Results.Ok(new { 
+            Supplier = supplier, 
+            Evaluation = supplier.ScoreEvaluation,
+            AiSummary = supplier.ScoreEvaluation?.AiSummary
+        });
     } catch {
         return Results.Problem("Erro de conexão com o banco de dados.", statusCode: 503);
     }
@@ -391,9 +415,12 @@ app.MapPost("/api/supplier/feedback", async (AppDbContext db, ISupplierScoringSe
         if (string.IsNullOrWhiteSpace(req.Cnpj))
             return Results.BadRequest(new { Message = "CNPJ é obrigatório." });
 
+        // Normalizar CNPJ antes de buscar — evita 404 quando usuário digita com pontuação
+        var cleanCnpj = new string(req.Cnpj.Where(char.IsDigit).ToArray());
+
         var supplier = await db.Suppliers
             .Include(s => s.ScoreEvaluation)
-            .FirstOrDefaultAsync(s => s.Cnpj == req.Cnpj);
+            .FirstOrDefaultAsync(s => s.Cnpj == cleanCnpj || s.Cnpj == req.Cnpj);
             
         if (supplier == null) 
             return Results.NotFound(new { Message = $"Fornecedor com CNPJ '{req.Cnpj}' não encontrado. Realize o onboarding primeiro." });
