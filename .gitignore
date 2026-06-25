@@ -18,3 +18,10 @@ appsettings.Development.json
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Databases
+API/pesa.db
+API/pesa.db-shm
+API/pesa.db-wal
+*.db
+*.db-*

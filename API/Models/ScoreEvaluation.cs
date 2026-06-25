@@ -20,6 +20,9 @@ namespace API.Models
         // Fator Dinâmico
         public int TotalScore { get; set; }
         
+        // Resumo da análise de IA (persistido para não ser perdido ao recarregar)
+        public string? AiSummary { get; set; }
+        
         // Avaliação Pós-Entrega (Ciclo Pós-Aquisição)
         public decimal? PostDeliveryDeadlineScore { get; set; }
         public decimal? PostDeliveryPriceScore { get; set; }
