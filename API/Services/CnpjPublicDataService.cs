@@ -59,9 +59,19 @@ namespace API.Services
             // Obs.: {cnpj} é substituído pelo CNPJ normalizado.
             var candidates = new System.Collections.Generic.List<string>();
 
-            // Fontes “governo” (quando disponíveis por endpoint público) — não há contrato único.
-            // Mantemos como tentativa e, se falhar, segue.
-            // Observação: alguns portais podem retornar HTML; o parser ignora se não for JSON.
+            // 1. ReceitaWS v1 (fonte principal e mais rápida para obter a Razão Social real)
+            candidates.Add(GetStringEnv("CNPJ_PUBLIC_ALT_URL_1",
+                "https://receitaws.com.br/v1/cnpj/{cnpj}").Replace("{cnpj}", cnpj));
+
+            candidates.Add(GetStringEnv("CNPJ_PUBLIC_ALT_URL_2",
+                "https://api.allorigins.win/raw?url=https://receitaws.com.br/v1/cnpj/{cnpj}")
+                .Replace("{cnpj}", cnpj));
+
+            // Tentativas extras (variantes)
+            candidates.Add($"https://receitaws.com.br/v1/cnpj/{cnpj}");
+            candidates.Add($"https://receitaws.com.br/v1/cnpj/{cnpj}?token=public");
+
+            // 2. Fontes de Governo (Portal da Transparência / CGU) - mantidas como fallback
             candidates.Add(GetStringEnv(
                 "GOV_BASE_URL_1",
                 "https://www.portaldatransparencia.gov.br/") + "?cnpj=" + cnpj);
@@ -70,20 +80,9 @@ namespace API.Services
                 "GOV_BASE_URL_2",
                 "https://certidoes.cgu.gov.br/" ) + "?cnpj=" + cnpj);
 
-            // Fontes abertas de terceiros (fallback) — aumentam chance de achar algum JSON.
+            // 3. Fontes abertas de terceiros
             var baseUrl = GetStringEnv("CNPJ_PUBLIC_BASE_URL", "https://cnpj.info");
             candidates.Add($"{baseUrl.TrimEnd('/')}/{cnpj}");
-
-            candidates.Add(GetStringEnv("CNPJ_PUBLIC_ALT_URL_1",
-                "https://www.receitaws.com.br/api/cnpj/{cnpj}").Replace("{cnpj}", cnpj));
-
-            candidates.Add(GetStringEnv("CNPJ_PUBLIC_ALT_URL_2",
-                "https://api.allorigins.win/raw?url=https://www.receitaws.com.br/api/cnpj/{cnpj}")
-                .Replace("{cnpj}", cnpj));
-
-            // Tentativas extras (variantes) para aumentar chance de resposta.
-            candidates.Add($"https://www.receitaws.com.br/api/cnpj/{cnpj}");
-            candidates.Add($"https://www.receitaws.com.br/api/cnpj/{cnpj}?token=public");
 
             // Remover duplicadas preservando ordem.
             candidates = candidates.Distinct(System.StringComparer.OrdinalIgnoreCase).ToList();

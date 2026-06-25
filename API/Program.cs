@@ -91,18 +91,21 @@ app.MapPost("/api/supplier/evaluate", async (
     try 
     {
         var form = await httpContext.Request.ReadFormAsync();
-        cnpj = form["cnpj"].ToString();
+        var rawCnpj = form["cnpj"].ToString();
         var documentFile = form.Files.GetFile("document");
 
-        if (string.IsNullOrWhiteSpace(cnpj))
+        if (string.IsNullOrWhiteSpace(rawCnpj))
         {
             return Results.BadRequest(new { Message = "O CNPJ é obrigatório." });
         }
 
-        // Verificando se o fornecedor já existe
+        var cleanCnpj = new string(rawCnpj.Where(char.IsDigit).ToArray());
+        cnpj = cleanCnpj;
+
+        // Verificando se o fornecedor já existe (aceita formato limpo ou formatado)
         var existingSupplier = await dbContext.Suppliers
             .Include(s => s.ScoreEvaluation)
-            .FirstOrDefaultAsync(s => s.Cnpj == cnpj);
+            .FirstOrDefaultAsync(s => s.Cnpj == cleanCnpj || s.Cnpj == rawCnpj);
 
         // Enriquecimento por CNPJ em bases públicas (quando possível)
         // Sempre tolerante a falhas: se não conseguir, retornará nulls.
@@ -117,12 +120,17 @@ app.MapPost("/api/supplier/evaluate", async (
             cnpjEnrichment = null;
         }
 
+        // Detectar se o fornecedor existente possui um nome provisório/mock gerado em falhas anteriores
+        bool hasMockName = existingSupplier != null && 
+            (existingSupplier.CorporateName.Contains("TechCorp") ||
+             existingSupplier.CorporateName.Contains("Logística") ||
+             existingSupplier.CorporateName.Contains("Serviços") ||
+             existingSupplier.CorporateName.Contains("Construtora") ||
+             existingSupplier.CorporateName.Contains("Inovação") ||
+             existingSupplier.CorporateName.Contains("Agro"));
 
-
-
-
-        // Se o fornecedor já existe E não foi enviado um documento novo no onboarding, retornamos o cache
-        if (existingSupplier != null && (documentFile == null || documentFile.Length == 0))
+        // Se o fornecedor já existe, não possui nome mockado e não foi enviado um documento novo no onboarding, retornamos o cache
+        if (existingSupplier != null && !hasMockName && (documentFile == null || documentFile.Length == 0))
         {
             return Results.Ok(new { 
                 Message = "Fornecedor já avaliado.",
@@ -164,6 +172,11 @@ app.MapPost("/api/supplier/evaluate", async (
         if (existingSupplier != null)
         {
             supplier = existingSupplier;
+            supplier.Cnpj = cleanCnpj; // Atualiza para o formato normalizado
+            if (cnpjEnrichment != null && !string.IsNullOrWhiteSpace(cnpjEnrichment.CorporateName))
+            {
+                supplier.CorporateName = cnpjEnrichment.CorporateName;
+            }
             evaluation = existingSupplier.ScoreEvaluation ?? new ScoreEvaluation { SupplierId = existingSupplier.Id };
         }
         else
@@ -171,10 +184,10 @@ app.MapPost("/api/supplier/evaluate", async (
             isNew = true;
             supplier = new Supplier 
             { 
-                Cnpj = cnpj,
+                Cnpj = cleanCnpj,
                 CorporateName = !string.IsNullOrWhiteSpace(cnpjEnrichment?.CorporateName)
                     ? cnpjEnrichment!.CorporateName
-                    : nomes[rand.Next(nomes.Length)] + " - " + cnpj.Substring(0, Math.Min(cnpj.Length, 4)),
+                    : nomes[rand.Next(nomes.Length)] + " - " + cleanCnpj.Substring(0, Math.Min(cleanCnpj.Length, 4)),
                 SupplierType = "Terceiro Recorrente" 
             };
             
