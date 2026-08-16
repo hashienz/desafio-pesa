@@ -4,6 +4,10 @@ import { Search, Upload, FileCheck, X, Loader2, AlertCircle, RefreshCw, ChevronR
 
 export default function Onboarding() {
   const [cnpj, setCnpj]         = useState(() => sessionStorage.getItem('pesa_onboarding_cnpj') || '');
+  const [supplierName, setSupplierName] = useState(() => sessionStorage.getItem('pesa_supplier_name') || '');
+  const [tradeName, setTradeName] = useState(() => sessionStorage.getItem('pesa_trade_name') || '');
+  const [supplierType, setSupplierType] = useState(() => sessionStorage.getItem('pesa_supplier_type') || 'Terceiro Recorrente');
+  const [supplierNotes, setSupplierNotes] = useState(() => sessionStorage.getItem('pesa_supplier_notes') || '');
   const [file, setFile]         = useState(null);
   const [loading, setLoading]   = useState(false);
   const [progress, setProgress] = useState(0);
@@ -51,6 +55,10 @@ export default function Onboarding() {
 
     const fd = new FormData();
     fd.append('cnpj', cnpj);
+    fd.append('supplierName', supplierName);
+    fd.append('tradeName', tradeName);
+    fd.append('supplierType', supplierType);
+    fd.append('supplierNotes', supplierNotes);
     if (file) fd.append('document', file);
 
     fetch('http://localhost:5115/api/supplier/evaluate', { method: 'POST', body: fd })
@@ -108,6 +116,78 @@ export default function Onboarding() {
                 placeholder="00.000.000/0001-00"
                 disabled={loading}
                 className="w-full max-w-xs px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-400"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="supplierName" className="block text-sm font-medium text-slate-700 mb-1.5">Razão Social</label>
+                <input
+                  id="supplierName"
+                  type="text"
+                  value={supplierName}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setSupplierName(val);
+                    sessionStorage.setItem('pesa_supplier_name', val);
+                  }}
+                  placeholder="Nome da empresa"
+                  disabled={loading}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-400"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="tradeName" className="block text-sm font-medium text-slate-700 mb-1.5">Nome Fantasia</label>
+                <input
+                  id="tradeName"
+                  type="text"
+                  value={tradeName}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setTradeName(val);
+                    sessionStorage.setItem('pesa_trade_name', val);
+                  }}
+                  placeholder="Nome comercial"
+                  disabled={loading}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-400"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="supplierType" className="block text-sm font-medium text-slate-700 mb-1.5">Tipo de Fornecedor</label>
+              <select
+                id="supplierType"
+                value={supplierType}
+                onChange={e => {
+                  const val = e.target.value;
+                  setSupplierType(val);
+                  sessionStorage.setItem('pesa_supplier_type', val);
+                }}
+                disabled={loading}
+                className="w-full max-w-md px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-400"
+              >
+                <option value="Terceiro Recorrente">Terceiro Recorrente</option>
+                <option value="Serviços de Hospedagem">Serviços de Hospedagem</option>
+                <option value="Opex/Capex">Opex/Capex</option>
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="supplierNotes" className="block text-sm font-medium text-slate-700 mb-1.5">Observações do Fornecedor</label>
+              <textarea
+                id="supplierNotes"
+                rows="3"
+                value={supplierNotes}
+                onChange={e => {
+                  const val = e.target.value;
+                  setSupplierNotes(val);
+                  sessionStorage.setItem('pesa_supplier_notes', val);
+                }}
+                placeholder="Ex.: histórico de entregas, prática ESG, pendências fiscais, processos judiciais ou comentários de compliance."
+                disabled={loading}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-slate-50 disabled:text-slate-400"
               />
             </div>
 

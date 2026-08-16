@@ -10,6 +10,13 @@ namespace API.Services
     public interface IGeminiDocumentAnalyzer
     {
         Task<GeminiAnalysisResult> AnalyzeDocumentAsync(string fileName, string mimeType, byte[] fileBytes);
+        Task<SupplierProfileAssessment> AnalyzeSupplierProfileAsync(
+            string cnpj,
+            string? corporateName,
+            string? tradeName,
+            string? supplierType,
+            string? notes,
+            string? sourceSummary = null);
     }
 
     public class GeminiAnalysisResult
@@ -18,6 +25,16 @@ namespace API.Services
         public string TipoDocumento { get; set; } = "Desconhecido";
         public string Resumo { get; set; } = "Nenhum documento fornecido para análise de IA.";
         public int ImpactoScore { get; set; } = 0;
+    }
+
+    public class SupplierProfileAssessment
+    {
+        public bool HasEsgCertification { get; set; }
+        public bool HasIncompleteFiscalDocs { get; set; }
+        public bool HasJudicialOrLaborProcess { get; set; }
+        public bool HasPositiveInternalHistory { get; set; }
+        public int ImpactoScore { get; set; }
+        public string Resumo { get; set; } = "Nenhuma informação de cadastro avaliada.";
     }
 
     public class GeminiDocumentAnalyzer : IGeminiDocumentAnalyzer
@@ -121,6 +138,130 @@ namespace API.Services
             {
                 return GetMockAnalysis(fileName, $"Falha na integração com a IA: {ex.Message}");
             }
+        }
+
+        public async Task<SupplierProfileAssessment> AnalyzeSupplierProfileAsync(
+            string cnpj,
+            string? corporateName,
+            string? tradeName,
+            string? supplierType,
+            string? notes,
+            string? sourceSummary = null)
+        {
+            var apiKey = _config["GeminiApiKey"];
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                apiKey = Environment.GetEnvironmentVariable("GEMINI_API_KEY") ?? Environment.GetEnvironmentVariable("GeminiApiKey");
+            }
+
+            if (string.IsNullOrWhiteSpace(apiKey))
+            {
+                return GetMockSupplierProfileAnalysis(cnpj, corporateName, tradeName, supplierType, notes, sourceSummary);
+            }
+
+            try
+            {
+                var profileText = $"CNPJ: {cnpj}\nRazão social: {corporateName ?? "não informada"}\nNome fantasia: {tradeName ?? "não informado"}\nTipo do fornecedor: {supplierType ?? "não informado"}\nObservações: {notes ?? "nenhuma"}\nDados públicos: {sourceSummary ?? "não informado"}";
+
+                var prompt = "Você é um analista de compliance para fornecedores. Avalie o cadastro do fornecedor com base nos dados abaixo e responda APENAS um JSON válido, sem markdown, com as chaves exatas: {" +
+                             "\"hasEsgCertification\": true/false, " +
+                             "\"hasIncompleteFiscalDocs\": true/false, " +
+                             "\"hasJudicialOrLaborProcess\": true/false, " +
+                             "\"hasPositiveInternalHistory\": true/false, " +
+                             "\"impactoScore\": inteiro, " +
+                             "\"resumo\": \"texto curto com a decisão\"}. " +
+                             "Use regras do compliance: ESG, pendências fiscais, processos trabalhistas/judiciais e histórico positivo. " +
+                             "Se houver sinais de sustentabilidade/ESG, marque true em hasEsgCertification. " +
+                             "Se houver débitos, pendências, inadimplência ou documentação incompleta, marque true em hasIncompleteFiscalDocs. " +
+                             "Se houver processos trabalhistas, ações judiciais ou reclamações graves, marque true em hasJudicialOrLaborProcess. " +
+                             "Se houver reputação limpa, histórico positivo, bons contratos ou registros bons, marque true em hasPositiveInternalHistory. " +
+                             "Os dados do fornecedor são:\n" + profileText;
+
+                var requestBody = new
+                {
+                    contents = new[]
+                    {
+                        new
+                        {
+                            parts = new object[]
+                            {
+                                new { text = prompt }
+                            }
+                        }
+                    }
+                };
+
+                var jsonRequest = JsonSerializer.Serialize(requestBody);
+                var response = await _httpClient.PostAsync(
+                    $"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={apiKey}",
+                    new StringContent(jsonRequest, Encoding.UTF8, "application/json"));
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return GetMockSupplierProfileAnalysis(cnpj, corporateName, tradeName, supplierType, notes, sourceSummary, $"Erro da API: {response.StatusCode}");
+                }
+
+                var jsonResponse = await response.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(jsonResponse);
+                var text = doc.RootElement
+                    .GetProperty("candidates")[0]
+                    .GetProperty("content")
+                    .GetProperty("parts")[0]
+                    .GetProperty("text")
+                    .GetString();
+
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    return GetMockSupplierProfileAnalysis(cnpj, corporateName, tradeName, supplierType, notes, sourceSummary, "Resposta vazia da IA.");
+                }
+
+                text = text.Replace("```json", "").Replace("```", "").Trim();
+
+                var parsed = JsonSerializer.Deserialize<SupplierProfileAssessment>(text, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                });
+
+                return parsed ?? GetMockSupplierProfileAnalysis(cnpj, corporateName, tradeName, supplierType, notes, sourceSummary, "JSON inválido da IA.");
+            }
+            catch (Exception ex)
+            {
+                return GetMockSupplierProfileAnalysis(cnpj, corporateName, tradeName, supplierType, notes, sourceSummary, $"Falha na IA: {ex.Message}");
+            }
+        }
+
+        private SupplierProfileAssessment GetMockSupplierProfileAnalysis(
+            string cnpj,
+            string? corporateName,
+            string? tradeName,
+            string? supplierType,
+            string? notes,
+            string? sourceSummary,
+            string? errorDetail = null)
+        {
+            var combined = $"{corporateName} {tradeName} {supplierType} {notes} {sourceSummary}".Trim();
+            var lower = combined.ToLowerInvariant();
+
+            var assessment = new SupplierProfileAssessment
+            {
+                HasEsgCertification = lower.Contains("esg") || lower.Contains("sustentabilidade") || lower.Contains("ambiental") || lower.Contains("certificado") || lower.Contains("iso 14001"),
+                HasIncompleteFiscalDocs = lower.Contains("inadimpl") || lower.Contains("pendenc") || lower.Contains("irregular") || lower.Contains("dívida") || lower.Contains("divida") || lower.Contains("fiscal") || lower.Contains("documentação incompleta"),
+                HasJudicialOrLaborProcess = lower.Contains("processo") || lower.Contains("judicial") || lower.Contains("trabalhista") || lower.Contains("ação") || lower.Contains("litigio") || lower.Contains("reclama"),
+                HasPositiveInternalHistory = lower.Contains("bom histórico") || lower.Contains("histórico positivo") || lower.Contains("histórico limpo") || lower.Contains("sem pendência") || lower.Contains("reputação sólida") || lower.Contains("confiável") || lower.Contains("dados limpos")
+            };
+
+            if (string.IsNullOrWhiteSpace(lower))
+            {
+                assessment.HasPositiveInternalHistory = true;
+            }
+
+            assessment.ImpactoScore = (assessment.HasEsgCertification ? 15 : 0) - (assessment.HasIncompleteFiscalDocs ? 20 : 0) - (assessment.HasJudicialOrLaborProcess ? 25 : 0) + (assessment.HasPositiveInternalHistory ? 20 : 0);
+
+            assessment.Resumo = errorDetail != null
+                ? $"Análise de cadastro do fornecedor com fallback heurístico. {errorDetail}"
+                : "Cadastro do fornecedor analisado com base em ESG, fiscal, judicial e histórico interno.";
+
+            return assessment;
         }
 
         private GeminiAnalysisResult GetMockAnalysis(string fileName, string? errorDetail = null)

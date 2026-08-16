@@ -93,6 +93,10 @@ app.MapPost("/api/supplier/evaluate", async (
         var form = await httpContext.Request.ReadFormAsync();
         var rawCnpj = form["cnpj"].ToString();
         var documentFile = form.Files.GetFile("document");
+        var supplierName = form["supplierName"].ToString();
+        var tradeName = form["tradeName"].ToString();
+        var supplierType = form["supplierType"].ToString();
+        var supplierNotes = form["supplierNotes"].ToString();
 
         if (string.IsNullOrWhiteSpace(rawCnpj))
         {
@@ -132,11 +136,12 @@ app.MapPost("/api/supplier/evaluate", async (
         // Se o fornecedor já existe, não possui nome mockado e não foi enviado um documento novo no onboarding, retornamos o cache
         if (existingSupplier != null && !hasMockName && (documentFile == null || documentFile.Length == 0))
         {
+            var recoveredScore = existingSupplier.ScoreEvaluation?.TotalScore ?? 0;
             return Results.Ok(new { 
                 Message = "Fornecedor já avaliado.",
                 Supplier = existingSupplier, 
                 Evaluation = existingSupplier.ScoreEvaluation,
-                AiSummary = $"[IA] Dados recuperados da base local. O perfil de risco histórico foi mantido com score {existingSupplier.ScoreEvaluation.TotalScore}/100."
+                AiSummary = $"[IA] Dados recuperados da base local. O perfil de risco histórico foi mantido com score {recoveredScore}/100."
             });
         }
 
@@ -153,6 +158,15 @@ app.MapPost("/api/supplier/evaluate", async (
                 fileBytes
             );
         }
+
+        var supplierProfile = await documentAnalyzer.AnalyzeSupplierProfileAsync(
+            cnpj,
+            string.IsNullOrWhiteSpace(supplierName) ? (cnpjEnrichment?.CorporateName ?? null) : supplierName,
+            string.IsNullOrWhiteSpace(tradeName) ? null : tradeName,
+            string.IsNullOrWhiteSpace(supplierType) ? "Terceiro Recorrente" : supplierType,
+            string.IsNullOrWhiteSpace(supplierNotes) ? null : supplierNotes,
+            cnpjEnrichment?.SourceSummary
+        );
 
         var rand = new Random(cnpj.GetHashCode());
         var nomes = new[] { "TechCorp Brasil Ltda", "Logística Avançada S.A.", "Serviços Gerais XYZ", "Construtora Horizonte", "Inovação TI", "Agro Indústria PESA" };
@@ -182,24 +196,38 @@ app.MapPost("/api/supplier/evaluate", async (
         else
         {
             isNew = true;
+            var baseSupplierName = !string.IsNullOrWhiteSpace(cnpjEnrichment?.CorporateName)
+                ? cnpjEnrichment!.CorporateName
+                : nomes[rand.Next(nomes.Length)] + " - " + cleanCnpj.Substring(0, Math.Min(cleanCnpj.Length, 4));
+
             supplier = new Supplier 
             { 
                 Cnpj = cleanCnpj,
-                CorporateName = !string.IsNullOrWhiteSpace(cnpjEnrichment?.CorporateName)
-                    ? cnpjEnrichment!.CorporateName
-                    : nomes[rand.Next(nomes.Length)] + " - " + cleanCnpj.Substring(0, Math.Min(cleanCnpj.Length, 4)),
-                SupplierType = "Terceiro Recorrente" 
+                CorporateName = string.IsNullOrWhiteSpace(supplierName) ? baseSupplierName : supplierName,
+                TradeName = string.IsNullOrWhiteSpace(tradeName) ? string.Empty : tradeName,
+                SupplierType = string.IsNullOrWhiteSpace(supplierType) ? "Terceiro Recorrente" : supplierType
             };
             
             evaluation = new ScoreEvaluation 
             {
-                HasEsgCertification = hasEsgCertification ?? (rand.NextDouble() > 0.5), // 50% de chance
-                HasIncompleteFiscalDocs = hasIncompleteFiscalDocs ?? (rand.NextDouble() > 0.8), // 20% de chance de problema
-                HasJudicialOrLaborProcess = hasJudicialOrLaborProcess ?? (rand.NextDouble() > 0.7), // 30% de chance de processos
-                HasPositiveInternalHistory = hasPositiveInternalHistory ?? (rand.NextDouble() > 0.4) // 60% de chance de histórico bom
+                HasEsgCertification = hasEsgCertification ?? supplierProfile.HasEsgCertification || (rand.NextDouble() > 0.5),
+                HasIncompleteFiscalDocs = hasIncompleteFiscalDocs ?? supplierProfile.HasIncompleteFiscalDocs || (rand.NextDouble() > 0.8),
+                HasJudicialOrLaborProcess = hasJudicialOrLaborProcess ?? supplierProfile.HasJudicialOrLaborProcess || (rand.NextDouble() > 0.7),
+                HasPositiveInternalHistory = hasPositiveInternalHistory ?? supplierProfile.HasPositiveInternalHistory || (rand.NextDouble() > 0.4)
             };
         }
 
+        if (!string.IsNullOrWhiteSpace(supplierName) || !string.IsNullOrWhiteSpace(tradeName) || !string.IsNullOrWhiteSpace(supplierType))
+        {
+            if (!string.IsNullOrWhiteSpace(supplierName)) supplier.CorporateName = supplierName;
+            if (!string.IsNullOrWhiteSpace(tradeName)) supplier.TradeName = tradeName;
+            if (!string.IsNullOrWhiteSpace(supplierType)) supplier.SupplierType = supplierType;
+        }
+
+        evaluation.HasEsgCertification = evaluation.HasEsgCertification || supplierProfile.HasEsgCertification;
+        evaluation.HasIncompleteFiscalDocs = evaluation.HasIncompleteFiscalDocs || supplierProfile.HasIncompleteFiscalDocs;
+        evaluation.HasJudicialOrLaborProcess = evaluation.HasJudicialOrLaborProcess || supplierProfile.HasJudicialOrLaborProcess;
+        evaluation.HasPositiveInternalHistory = evaluation.HasPositiveInternalHistory || supplierProfile.HasPositiveInternalHistory;
 
         // Calibrar score com base na IA do documento
         if (aiDocResult != null)
@@ -335,7 +363,7 @@ app.MapGet("/api/supplier/metrics", async (AppDbContext db) => {
             total,
             dbOnline = true
         });
-    } catch (Exception ex) {
+    } catch {
         return Results.Ok(new { 
             homologados = 0, rejeitados = 0, aguardandoAuditoria = 0, aguardandoAprovacao = 0,
             altoRisco = 0, total = 0, dbOnline = false,
@@ -353,7 +381,7 @@ app.MapGet("/api/supplier/pending-approvals", async (AppDbContext db) => {
             .Select(s => new { s.Id, s.Cnpj, s.CorporateName, s.Status, Score = s.ScoreEvaluation != null ? s.ScoreEvaluation.TotalScore : (int?)null })
             .ToListAsync();
         return Results.Ok(pending);
-    } catch (Exception ex) {
+    } catch {
         return Results.Problem("Erro ao buscar fila de aprovação: banco de dados indisponível.", statusCode: 503);
     }
 });
