@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Search, FolderOpen, Scale, Star,
+  LayoutDashboard, Search, FolderOpen, Scale, Star, GitCompare,
   Plus, Save, Printer, HelpCircle, User, ChevronRight,
   Monitor
 } from 'lucide-react';
@@ -10,12 +10,14 @@ import Onboarding   from './pages/Onboarding';
 import Dossier      from './pages/Dossier';
 import ApprovalQueue from './pages/ApprovalQueue';
 import Feedback     from './pages/Feedback';
+import Compare      from './pages/Compare';
 import './index.css';
 
 const NAV_ITEMS = [
   { to: '/',           label: 'Dashboard',          icon: LayoutDashboard, exact: true  },
   { to: '/onboarding', label: 'Busca / Onboarding',  icon: Search,          exact: false },
   { to: '/dossier',    label: 'Dossiê & Score',       icon: FolderOpen,      exact: false },
+  { to: '/compare',    label: 'Comparar Fornecedores', icon: GitCompare,      exact: false },
   { to: '/approvals',  label: 'Fila Jurídico/RH',    icon: Scale,           exact: false },
   { to: '/feedback',   label: 'Pós-Aquisição',        icon: Star,            exact: false },
 ];
@@ -137,6 +139,7 @@ function MainApp() {
             <Route path="/onboarding"    element={<Onboarding />} />
             <Route path="/dossier"       element={<Dossier />} />
             <Route path="/dossier/:cnpj" element={<Dossier />} />
+            <Route path="/compare"       element={<Compare />} />
             <Route path="/approvals"     element={<ApprovalQueue />} />
             <Route path="/feedback"      element={<Feedback />} />
           </Routes>

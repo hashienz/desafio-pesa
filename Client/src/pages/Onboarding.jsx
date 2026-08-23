@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Upload, FileCheck, X, Loader2, AlertCircle, RefreshCw, ChevronRight } from 'lucide-react';
+import { Search, Upload, FileCheck, X, Loader2, AlertCircle, RefreshCw, ChevronRight, GitCompare } from 'lucide-react';
 
 export default function Onboarding() {
   const [cnpj, setCnpj]         = useState(() => sessionStorage.getItem('pesa_onboarding_cnpj') || '');
@@ -21,7 +21,25 @@ export default function Onboarding() {
     }
   });
   const [historyLoading, setHistoryLoading] = useState(history.length === 0);
+  const [selectedForComparison, setSelectedForComparison] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('pesa_compare_cnpjs') || '[]');
+    } catch {
+      return [];
+    }
+  });
   const navigate = useNavigate();
+
+  const toggleComparison = cnpjValue => {
+    setSelectedForComparison(current => {
+      const cleanCnpj = cnpjValue.replace(/\D/g, '');
+      const next = current.includes(cleanCnpj)
+        ? current.filter(value => value !== cleanCnpj)
+        : current.length < 2 ? [...current, cleanCnpj] : current;
+      localStorage.setItem('pesa_compare_cnpjs', JSON.stringify(next));
+      return next;
+    });
+  };
 
   const fetchHistory = () => {
     setHistoryLoading(true);
@@ -258,14 +276,23 @@ export default function Onboarding() {
           <p className="text-sm font-semibold text-slate-700 flex items-center gap-2">
             <FileCheck size={14} className="text-blue-600" /> Últimos Fornecedores Consultados
           </p>
-          {!historyLoading && (
+          <div className="flex items-center gap-2">
+            {!historyLoading && (
+              <button
+                onClick={fetchHistory}
+                className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                <RefreshCw size={10} /> Atualizar
+              </button>
+            )}
             <button
-              onClick={fetchHistory}
-              className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              onClick={() => navigate('/compare')}
+              disabled={selectedForComparison.length !== 2}
+              className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
-              <RefreshCw size={10} /> Atualizar
+              <GitCompare size={11} /> Comparar ({selectedForComparison.length}/2)
             </button>
-          )}
+          </div>
         </div>
         <div>
           {historyLoading && history.length === 0 ? (
@@ -281,6 +308,7 @@ export default function Onboarding() {
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Razão Social</th>
                     <th className="text-center px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Score</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                    <th className="text-center px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Selecionar</th>
                     <th className="text-center px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Dossiê</th>
                   </tr>
                 </thead>
@@ -299,6 +327,16 @@ export default function Onboarding() {
                           item.status?.includes('Aprovação') ? 'bg-blue-100 text-blue-700' :
                           'bg-amber-100 text-amber-700'
                         }`}>{item.status}</span>
+                      </td>
+                      <td className="px-5 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={selectedForComparison.includes(item.cnpj.replace(/\D/g, ''))}
+                          onChange={() => toggleComparison(item.cnpj)}
+                          disabled={!selectedForComparison.includes(item.cnpj.replace(/\D/g, '')) && selectedForComparison.length >= 2}
+                          aria-label={`Selecionar ${item.corporateName} para comparação`}
+                          className="h-4 w-4 accent-blue-600"
+                        />
                       </td>
                       <td className="px-5 py-3 text-center">
                         <button
