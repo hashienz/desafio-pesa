@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Search, FolderOpen, Scale, Star, GitCompare,
-  Plus, Save, Printer, HelpCircle, User, ChevronRight,
-  Monitor
+  Plus, Save, Printer, HelpCircle, User,
+  Monitor, BookOpen
 } from 'lucide-react';
 import Dashboard    from './pages/Dashboard';
 import Onboarding   from './pages/Onboarding';
@@ -11,6 +11,7 @@ import Dossier      from './pages/Dossier';
 import ApprovalQueue from './pages/ApprovalQueue';
 import Feedback     from './pages/Feedback';
 import Compare      from './pages/Compare';
+import UserGuide    from './pages/UserGuide';
 import './index.css';
 
 const NAV_ITEMS = [
@@ -20,6 +21,7 @@ const NAV_ITEMS = [
   { to: '/compare',    label: 'Comparar Fornecedores', icon: GitCompare,      exact: false },
   { to: '/approvals',  label: 'Fila Jurídico/RH',    icon: Scale,           exact: false },
   { to: '/feedback',   label: 'Pós-Aquisição',        icon: Star,            exact: false },
+  { to: '/guide',      label: 'Guia de Uso',          icon: BookOpen,        exact: false },
 ];
 
 const MENU_ITEMS = ['Arquivo', 'Editar', 'Exibir', 'Relatórios', 'Ajuda'];
@@ -126,9 +128,11 @@ function MainApp() {
             <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
               <Printer size={13} /> Imprimir
             </button>
-            <button onClick={() => handleMenu('Ajuda')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-              <HelpCircle size={13} /> Ajuda
-            </button>
+            <Link to="/guide">
+              <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
+                <HelpCircle size={13} /> Ajuda
+              </button>
+            </Link>
           </div>
         </header>
 
@@ -142,6 +146,7 @@ function MainApp() {
             <Route path="/compare"       element={<Compare />} />
             <Route path="/approvals"     element={<ApprovalQueue />} />
             <Route path="/feedback"      element={<Feedback />} />
+            <Route path="/guide"         element={<UserGuide />} />
           </Routes>
         </main>
 
